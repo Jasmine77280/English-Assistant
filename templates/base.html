@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>{% block title %}英入眼帘{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=11">
+<link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}?v=6">
+</head>
+<body>
+<nav class="navbar">
+  <div class="nav-container">
+    <a href="/" class="nav-brand">
+      <svg class="logo-icon" viewBox="0 0 48 36" width="40" height="30" aria-hidden="true">
+        <defs>
+          <linearGradient id="navLg" x1="0" y1="0" x2="48" y2="36" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#6366f1"/>
+            <stop offset="1" stop-color="#7c3aed"/>
+          </linearGradient>
+        </defs>
+        <!-- 眼睛外轮廓 -->
+        <path d="M2 18 C10 4, 38 4, 46 18 C38 32, 10 32, 2 18 Z"
+              fill="none" stroke="url(#navLg)" stroke-width="3" stroke-linejoin="round"/>
+        <!-- 瞳孔：与轮廓同色的圆形底纹 -->
+        <circle cx="24" cy="18" r="11" fill="url(#navLg)"/>
+        <!-- abc 文字 -->
+        <text x="24" y="22" text-anchor="middle"
+              font-family="Arial, Helvetica, sans-serif" font-size="12"
+              font-weight="700" fill="white">abc</text>
+      </svg>
+      <span><span class="brand-highlight">英</span>入眼帘</span>
+    </a>
+    <div class="nav-links">
+      <a href="/" class="{% if request.path == '/' %}active{% endif %}">首页</a>
+      <a href="/learning" class="{% if request.path == '/learning' %}active{% endif %}">学习</a>
+      <a href="/history" class="{% if request.path == '/history' %}active{% endif %}">历史</a>
+      <a href="/about" class="{% if request.path == '/about' %}active{% endif %}">关于</a>
+    </div>
+  </div>
+</nav>
+
+{% if demo_mode %}
+<div class="demo-banner">
+  <span class="demo-tag">DEMO MODE</span>
+  未配置 API Key，当前使用示例数据展示。在 <code>.env</code> 中配置 <code>QWEN_API_KEY</code> 即可启用真实生成。
+</div>
+{% endif %}
+
+<main class="container">
+{% block content %}{% endblock %}
+</main>
+
+<footer class="footer">
+  <p>英入眼帘 · Powered by 智谱 AI + Edge TTS · <a href="/about">了解更多</a></p>
+</footer>
+
+<script src="{{ url_for('static', filename='js/app.js') }}?v=2"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

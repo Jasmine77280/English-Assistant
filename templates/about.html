@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}英入眼帘 · 关于{% endblock %}
+{% block content %}
+<section class="page-head">
+  <h2>关于 <span class="brand-highlight">英</span>入眼帘</h2>
+  <p class="muted">把生词编织成文章，让学习自然发生</p>
+</section>
+
+<section class="card">
+  <h3>🎯 产品定位</h3>
+  <p>
+    输入 5 个以上新学的英文单词，系统会根据词汇语义生成两篇覆盖全部目标词汇的英文短文，
+    并完成中文翻译、英文朗读、阅读理解出题。让每个生词在真实语境中被理解、被记住。
+  </p>
+</section>
+
+<section class="card">
+  <h3>⚙️ 工作流程</h3>
+  <div class="pipeline-grid">
+    <div class="pipe-card"><b>1</b><span>词汇分析</span><small>清洗、去重、格式校验</small></div>
+    <div class="pipe-card"><b>2</b><span>文章生成</span><small>根据语义生成两篇短文</small></div>
+    <div class="pipe-card"><b>3</b><span>覆盖检测</span><small>词汇覆盖率检测与重试</small></div>
+    <div class="pipe-card"><b>4</b><span>中文翻译</span><small>自然流畅的中文翻译</small></div>
+    <div class="pipe-card"><b>5</b><span>阅读理解</span><small>雅思风格选择题出题</small></div>
+    <div class="pipe-card"><b>6</b><span>语音朗读</span><small>英文朗读与语速调节</small></div>
+    <div class="pipe-card"><b>7</b><span>记录保存</span><small>学习记录持久化存储</small></div>
+  </div>
+</section>
+
+<section class="card">
+  <h3>📖 使用流程</h3>
+  <ol class="steps">
+    <li>在首页输入 5 个以上新学的英文单词，确认拼写后点击「开始生成」</li>
+    <li>系统根据词汇语义生成两篇短文，并自动检测词汇覆盖</li>
+    <li>查看两篇英文文章、中文翻译与目标词汇高亮</li>
+    <li>点击播放按钮收听英文朗读，可调节语速</li>
+    <li>完成 6 道阅读理解选择题（每篇文章 3 题），提交后查看答案与解析</li>
+    <li>可重新生成或导出学习报告，所有记录自动保存到历史记录</li>
+  </ol>
+</section>
+
+<section class="card">
+  <h3>🛠 技术栈</h3>
+  <p>Python + Flask · 智谱 AI（GLM + CogView）· Edge TTS · SQLite · HTML/CSS/JS</p>
+</section>
+{% endblock %}

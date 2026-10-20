@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+{% block title %}英入眼帘 · 首页{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>把生词编织成文章，让<span class="grad">学习自然发生</span></h1>
+  <p class="subtitle">
+    输入 5 个以上新学的英文单词，<br>你将获得两篇覆盖全部词汇的英文短文、中文翻译、朗读音频与阅读理解题。
+  </p>
+
+  <div class="input-card">
+    <label class="input-label">输入目标单词（用空格、逗号或换行分隔）</label>
+    <textarea id="wordInput" rows="4" placeholder="例如：apple banana orange grape mango"></textarea>
+    <div class="input-actions">
+      <span class="word-count" id="wordCount">0 个有效单词</span>
+      <button id="generateBtn" class="btn-primary">
+        <span class="btn-text">开始生成</span>
+        <span class="btn-loader" hidden></span>
+      </button>
+    </div>
+    <p class="hint">支持英文大小写字母，自动去重。至少 5 个单词。</p>
+    <div id="errorBox" class="error-box" hidden></div>
+  </div>
+
+  <div class="feature-grid">
+    <div class="feature">
+      <div class="feature-icon">📝</div>
+      <h3>双文生成</h3>
+      <p>根据词汇语义生成两篇连贯短文，<br>覆盖全部目标单词</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🔊</div>
+      <h3>朗读与翻译</h3>
+      <p>英文语音朗读搭配自然中文翻译，<br>边听边学</p>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">❓</div>
+      <h3>阅读理解</h3>
+      <p>每篇文章 3 道选择题，<br>提交后查看答案与解析</p>
+    </div>
+  </div>
+</section>
+
+<div id="loadingOverlay" class="loading-overlay" hidden>
+  <div class="loading-card">
+    <div class="spinner"></div>
+    <h3>正在生成学习内容…</h3>
+    <p id="loadingStep">分析词汇中…</p>
+    <p class="loading-time" id="loadingTime">已用时 0s</p>
+    <button id="cancelBtn" class="btn-secondary">取消</button>
+  </div>
+</div>
+
+<div id="confirmModal" class="modal" hidden>
+  <div class="modal-content" style="max-width: 460px;">
+    <div class="modal-head">
+      <h3>请确认单词拼写</h3>
+    </div>
+    <p class="muted" style="margin-bottom: 14px;">请检查以下单词是否正确：</p>
+    <div id="confirmWords" class="word-list" style="margin-bottom: 16px;"></div>
+    <div id="spellWarning" class="error-box" hidden style="margin-bottom: 16px;"></div>
+    <div class="quiz-actions" style="justify-content: flex-end;">
+      <button id="confirmCancel" class="btn-secondary">返回修改</button>
+      <button id="confirmOk" class="btn-primary">确认无误，开始生成</button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const STEPS = [
+    "分析词汇中…",
+    "生成英文文章…",
+    "检测词汇覆盖…",
+    "必要时重新生成…",
+    "翻译为中文…",
+    "生成朗读音频…",
+    "生成阅读理解题…",
+  ];
+  let stepTimer = null;
+  let timeTimer = null;
+  let abortController = null;
+  let pendingWords = [];
+
+  function updateWordCount() {
+    const raw = document.getElementById("wordInput").value;
+    const parts = raw.split(/[\s,，;；\n]+/).filter(Boolean);
+    const valid = parts.filter(w => /^[a-zA-Z]+$/.test(w));
+    document.getElementById("wordCount").textContent = `${valid.length} 个有效单词`;
+  }
+  document.getElementById("wordInput").addEventListener("input", updateWordCount);
+
+  function showError(msg) {
+    const box = document.getElementById("errorBox");
+    box.textContent = msg;
+    box.hidden = false;
+  }
+  function hideError() { document.getElementById("errorBox").hidden = true; }
+
+  // 拼写检查：检测可能的拼写错误
+  function checkSpelling(words) {
+    const warnings = [];
+    for (const w of words) {
+      // 3 个以上连续相同字母
+      if (/(.)\1\1/i.test(w)) {
+        warnings.push(`"${w}" 连续重复字母过多，可能是拼写错误`);
+      }
+      // 过短单词
+      else if (w.length < 2) {
+        warnings.push(`"${w}" 过短，请确认是否完整`);
+      }
+      // 无元音（全大写缩写如 UNESCO 除外）
+      else if (w.length > 3 && w === w.toLowerCase() && !/[aeiou]/.test(w)) {
+        warnings.push(`"${w}" 不含元音字母，请检查拼写`);
+      }
+    }
+    return warnings;
+  }
+
+  function showConfirmModal(words) {
+    pendingWords = words;
+    const list = document.getElementById("confirmWords");
+    list.innerHTML = words.map(w => `<span class="chip">${escapeHtml(w)}</span>`).join("");
+    // 拼写检查
+    const warnings = checkSpelling(words);
+    const warnBox = document.getElementById("spellWarning");
+    if (warnings.length > 0) {
+      warnBox.innerHTML = "⚠️ 检测到可能的问题：<br>• " + warnings.join("<br>• ");
+      warnBox.hidden = false;
+    } else {
+      warnBox.hidden = true;
+    }
+    document.getElementById("confirmModal").hidden = false;
+  }
+  function hideConfirmModal() {
+    document.getElementById("confirmModal").hidden = true;
+  }
+
+  document.getElementById("confirmCancel").addEventListener("click", () => {
+    hideConfirmModal();
+  });
+  document.getElementById("confirmOk").addEventListener("click", () => {
+    hideConfirmModal();
+    startGenerate(pendingWords);
+  });
+
+  function startLoading() {
+    const overlay = document.getElementById("loadingOverlay");
+    const btn = document.getElementById("generateBtn");
+    overlay.hidden = false;
+    btn.disabled = true;
+    btn.querySelector(".btn-text").hidden = true;
+    btn.querySelector(".btn-loader").hidden = false;
+    let i = 0;
+    stepTimer = setInterval(() => {
+      document.getElementById("loadingStep").textContent = STEPS[i % STEPS.length];
+      i++;
+    }, 1500);
+    const start = Date.now();
+    timeTimer = setInterval(() => {
+      const sec = Math.floor((Date.now() - start) / 1000);
+      document.getElementById("loadingTime").textContent = `已用时 ${sec}s`;
+    }, 1000);
+  }
+  function stopLoading() {
+    document.getElementById("loadingOverlay").hidden = true;
+    const btn = document.getElementById("generateBtn");
+    btn.disabled = false;
+    btn.querySelector(".btn-text").hidden = false;
+    btn.querySelector(".btn-loader").hidden = true;
+    if (stepTimer) clearInterval(stepTimer);
+    if (timeTimer) clearInterval(timeTimer);
+  }
+
+  document.getElementById("cancelBtn").addEventListener("click", () => {
+    if (abortController) abortController.abort();
+    stopLoading();
+    showError("已取消生成");
+  });
+
+  async function startGenerate(validWords) {
+    startLoading();
+    abortController = new AbortController();
+    const timeoutId = setTimeout(() => abortController.abort(), 180000);
+    try {
+      const resp = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ words: validWords }),
+        signal: abortController.signal,
+      });
+      clearTimeout(timeoutId);
+      const data = await resp.json();
+      if (!resp.ok) {
+        showError(data.error || "生成失败，请重试");
+        stopLoading();
+        return;
+      }
+      sessionStorage.setItem("learningResult", JSON.stringify(data));
+      window.location.href = "/learning";
+    } catch (e) {
+      clearTimeout(timeoutId);
+      if (e.name === "AbortError") {
+        showError("已取消或请求超时，请重试");
+      } else {
+        showError("网络错误：" + e.message + "，请重试");
+      }
+      stopLoading();
+    }
+  }
+
+  document.getElementById("generateBtn").addEventListener("click", () => {
+    hideError();
+    const raw = document.getElementById("wordInput").value;
+    const words = raw.split(/[\s,，;；\n]+/).filter(Boolean);
+    const validWords = words.filter(w => /^[a-zA-Z]+$/.test(w));
+    const invalidWords = words.filter(w => !/^[a-zA-Z]+$/.test(w));
+    if (invalidWords.length > 0) {
+      showError("以下内容包含非英文字符：" + invalidWords.join(", "));
+      return;
+    }
+    if (validWords.length < 5) {
+      showError(`请输入至少 5 个有效英文单词，当前 ${validWords.length} 个`);
+      return;
+    }
+    // 弹出确认弹窗，让用户检查拼写
+    showConfirmModal(validWords);
+  });
+
+  function escapeHtml(s) {
+    return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+</script>
+{% endblock %}

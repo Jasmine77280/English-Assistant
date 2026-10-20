@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 36">
+  <defs>
+    <linearGradient id="lg" x1="0" y1="0" x2="48" y2="36" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+  </defs>
+  <!-- 眼睛外轮廓 -->
+  <path d="M2 18 C10 4, 38 4, 46 18 C38 32, 10 32, 2 18 Z"
+        fill="none" stroke="url(#lg)" stroke-width="3" stroke-linejoin="round"/>
+  <!-- 瞳孔：与轮廓同色的圆形底纹 -->
+  <circle cx="24" cy="18" r="11" fill="url(#lg)"/>
+  <!-- abc 文字 -->
+  <text x="24" y="22" text-anchor="middle"
+        font-family="Arial, Helvetica, sans-serif" font-size="12"
+        font-weight="700" fill="white">abc</text>
+</svg>

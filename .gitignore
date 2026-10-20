@@ -1,0 +1,24 @@
+# ===== 敏感信息（绝对不要上传！）=====
+.env
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.venv/
+
+# ===== 本地依赖安装目录（服务器上通过 pip 安装）=====
+_vendor/
+
+# ===== 运行时生成的数据 =====
+data/
+audio/
+images/
+
+# ===== 系统/编辑器 =====
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log

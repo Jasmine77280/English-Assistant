@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}英入眼帘 · 历史{% endblock %}
+{% block content %}
+<section class="page-head">
+  <h2>历史学习记录</h2>
+  <p class="muted">所有学习内容保存在本地 SQLite 数据库</p>
+</section>
+
+<div id="historyEmpty" class="empty-state" hidden>
+  <div class="empty-icon">🕐</div>
+  <h2>暂无历史记录</h2>
+  <p>生成学习内容后，记录会自动保存在这里。</p>
+  <a href="/" class="btn-primary">开始学习</a>
+</div>
+
+<div id="historyList" class="history-list"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  function escapeHtml(s) {
+    const d = document.createElement("div");
+    d.textContent = s ?? "";
+    return d.innerHTML;
+  }
+
+  async function loadHistory() {
+    const resp = await fetch("/api/history");
+    const list = await resp.json();
+    const el = document.getElementById("historyList");
+    const empty = document.getElementById("historyEmpty");
+    if (!list.length) { empty.hidden = false; return; }
+    el.innerHTML = list.map(r => {
+      const acc = r.accuracy;
+      let accClass = 'no-quiz';
+      let accText = '未答题';
+      if (acc !== null && acc !== undefined) {
+        if (acc >= 80) accClass = 'acc-good';
+        else if (acc >= 50) accClass = 'acc-mid';
+        else accClass = 'acc-bad';
+        accText = `${r.correct_count}/${r.total_count}`;
+      }
+      return `
+      <div class="history-item card">
+        <div class="history-info">
+          <div class="history-time">${escapeHtml(r.created_at)} ${r.demo_mode ? '<span class="demo-tag">DEMO</span>' : ''}</div>
+          <div class="history-words">${r.words.map(w => `<span class="chip">${w}</span>`).join("")}</div>
+        </div>
+        <div class="history-cov">
+          <div class="acc-circle ${accClass}">${accText}</div>
+        </div>
+        <div class="history-actions">
+          <button class="btn-secondary" onclick="viewDetail(${r.id})">查看</button>
+          <button class="btn-secondary" onclick="shareRecord(${r.id})">🔗 分享</button>
+          <button class="btn-secondary" onclick="exportReport(${r.id}, 'md')">📄 MD</button>
+          <button class="btn-secondary" onclick="exportReport(${r.id}, 'pdf')">📑 PDF</button>
+          <button class="btn-secondary danger" onclick="deleteRecord(${r.id})">删除</button>
+        </div>
+      </div>
+    `;
+    }).join("");
+  }
+
+  async function viewDetail(id) {
+    // 跳转到学习页面，带上记录 ID
+    window.location.href = `/learning?rid=${id}`;
+  }
+
+  async function shareRecord(id) {
+    try {
+      const resp = await fetch(`/api/share/${id}`, { method: "POST" });
+      const data = await resp.json();
+      if (resp.ok) {
+        navigator.clipboard.writeText(data.share_url).then(() => {
+          alert("分享链接已复制到剪贴板：\n" + data.share_url);
+        }).catch(() => {
+          prompt("分享链接（请手动复制）：", data.share_url);
+        });
+      } else {
+        alert(data.error || "分享失败");
+      }
+    } catch (e) {
+      alert("分享失败：" + e.message);
+    }
+  }
+
+  function exportReport(id, format) {
+    window.open(`/api/report/${id}.${format}`, "_blank");
+  }
+
+  async function deleteRecord(id) {
+    if (!confirm("确定删除这条记录？")) return;
+    await fetch(`/api/history/${id}`, { method: "DELETE" });
+    loadHistory();
+  }
+
+  loadHistory();
+</script>
+{% endblock %}

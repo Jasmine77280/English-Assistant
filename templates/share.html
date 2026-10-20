@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}英入眼帘 · 分享{% endblock %}
+{% block content %}
+{% if error %}
+<div class="empty-state">
+  <div class="empty-icon">🔗</div>
+  <h2>{{ error }}</h2>
+  <p>该分享链接可能已失效。</p>
+  <a href="/" class="btn-primary">返回首页</a>
+</div>
+{% else %}
+<section class="page-head">
+  <h2>📖 分享的学习记录</h2>
+  <p class="muted">生成时间：{{ record.created_at }} ｜ Coverage：{{ record.coverage }}%</p>
+</section>
+
+<section class="card coverage-card">
+  <div class="coverage-header">
+    <div class="coverage-score">
+      <span class="coverage-num">{{ record.coverage }}</span>
+      <span class="coverage-pct">%</span>
+    </div>
+    <div class="coverage-meta">
+      <h3>Vocabulary Coverage</h3>
+      <div class="coverage-bar"><div class="coverage-fill" style="width:{{ record.coverage }}%;background:linear-gradient(90deg,#10b981,#34d399)"></div></div>
+    </div>
+  </div>
+  <div class="coverage-detail">
+    <div>
+      <span class="label">目标单词</span>
+      <div class="word-list">{{ record.words | join(', ') }}</div>
+    </div>
+    <div>
+      <span class="label">缺失单词</span>
+      <div class="word-list">{{ record.missing_words | join(', ') if record.missing_words else '无' }}</div>
+    </div>
+  </div>
+</section>
+
+{% for art in record.articles %}
+<section class="card">
+  <h3>Article {{ loop.index }}</h3>
+  <p class="article-en">{{ art }}</p>
+  <p class="muted article-cn">{{ record.translations[loop.index0] }}</p>
+</section>
+{% endfor %}
+
+<section class="card">
+  <h3>📖 阅读理解</h3>
+  {% for q in record.questions %}
+  <div class="quiz-item">
+    <p class="quiz-q"><b>{{ loop.index }}.</b> {{ q.question }}</p>
+    <div class="quiz-options">
+      {% for o in q.options %}
+      <label class="quiz-opt {% if loop.index0 == q.answer %}correct{% endif %}">
+        <span>{{ chr(65 + loop.index0) }}. {{ o }}{% if loop.index0 == q.answer %} ✅{% endif %}</span>
+      </label>
+      {% endfor %}
+    </div>
+    <p class="muted"><b>解析：</b>{{ q.explanation }}</p>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}
+{% endblock %}

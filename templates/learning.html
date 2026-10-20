@@ -1,0 +1,579 @@
+{% extends "base.html" %}
+{% block title %}英入眼帘 · 学习{% endblock %}
+{% block content %}
+<div id="learningEmpty" class="empty-state" hidden>
+  <div class="empty-icon">📚</div>
+  <h2>还没有学习内容</h2>
+  <p>请先在首页输入单词并生成学习内容。</p>
+  <a href="/" class="btn-primary">去输入单词</a>
+</div>
+
+<div id="learningContent" hidden>
+  <!-- Header -->
+  <div class="learn-header">
+    <div>
+      <h2>学习内容</h2>
+      <p class="muted" id="generatedAt"></p>
+    </div>
+    <div class="learn-actions">
+      <button id="regenerateBtn" class="btn-secondary">🔄 重新生成</button>
+      <span id="demoTag" class="demo-tag" hidden>DEMO</span>
+    </div>
+  </div>
+
+  <!-- Coverage Panel -->
+  <section class="card coverage-card">
+    <div class="coverage-header">
+      <div class="coverage-score">
+        <span class="coverage-num" id="coverageNum">0</span>
+        <span class="coverage-pct">%</span>
+      </div>
+      <div class="coverage-meta">
+        <h3>词汇覆盖</h3>
+        <div class="coverage-bar"><div class="coverage-fill" id="coverageFill"></div></div>
+        <div class="coverage-frac" id="coverageFrac"></div>
+      </div>
+    </div>
+    <div class="coverage-detail">
+      <div>
+        <span class="label">已覆盖</span>
+        <div class="word-list matched" id="matchedList"></div>
+      </div>
+      <div>
+        <span class="label">缺失</span>
+        <div class="word-list missing" id="missingList"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Saved-quiz actions (shown at top when viewing from history) -->
+  <div class="quiz-actions" id="savedQuizActions">
+    <button id="showAnswersBtn" class="btn-secondary" hidden>📋 显示答案</button>
+    <button id="retryQuizBtn" class="btn-secondary" hidden>重新作答</button>
+  </div>
+
+  <!-- Articles + Questions (interleaved) -->
+  <div id="contentArea"></div>
+
+  <!-- Quiz actions (shown at bottom for fresh answering) -->
+  <div class="quiz-actions" id="quizActions">
+    <button id="submitQuizBtn" class="btn-primary">提交答案</button>
+    <button id="resetQuizBtn" class="btn-secondary" hidden>重做</button>
+  </div>
+  <div id="quizResult" class="quiz-result" hidden></div>
+</div>
+
+<div id="loadingOverlay" class="loading-overlay" hidden>
+  <div class="loading-card">
+    <div class="spinner"></div>
+    <h3>重新生成中…</h3>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // 全局音频状态
+  let currentAudio = null;
+  let currentUtterance = null;
+  let playingIdx = null;
+
+  const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+
+  function stopAllAudio() {
+    if (currentAudio) { try { currentAudio.pause(); currentAudio.currentTime = 0; } catch(e){} currentAudio = null; }
+    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    currentUtterance = null;
+    playingIdx = null;
+    document.querySelectorAll(".btn-play").forEach(b => b.textContent = "▶ 播放朗读");
+  }
+
+  function updatePlayBtn(idx, playing) {
+    document.querySelectorAll(".btn-play").forEach(b => {
+      if (b.dataset.idx == idx) {
+        b.textContent = playing ? "⏸ 暂停" : "▶ 播放朗读";
+      } else {
+        b.textContent = "▶ 播放朗读";
+      }
+    });
+  }
+
+  function getSpeed(idx) {
+    const sel = document.getElementById(`speed-${idx}`);
+    return sel ? parseFloat(sel.value) : 1.0;
+  }
+
+  function speakBrowser(text, idx) {
+    if (!("speechSynthesis" in window)) {
+      alert("当前浏览器不支持语音合成");
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "en-US";
+    u.rate = getSpeed(idx);
+    u.onend = () => { if (playingIdx == idx) { playingIdx = null; updatePlayBtn(idx, false); } };
+    currentUtterance = u;
+    window.speechSynthesis.speak(u);
+  }
+
+  function escapeHtml(s) {
+    const d = document.createElement("div");
+    d.textContent = s ?? "";
+    return d.innerHTML;
+  }
+
+  // 与后端 ContentEvaluator.variants 同规则：生成单词常见变形
+  function wordVariants(w) {
+    w = w.toLowerCase();
+    const v = new Set([w]);
+    const n = w.length;
+    if (n < 2) return [...v];
+    const isV = c => "aeiou".includes(c);
+    if (/(s|x|z|ch|sh)$/.test(w)) v.add(w + "es");
+    else if (w.endsWith("y") && !isV(w[n-2])) v.add(w.slice(0,-1) + "ies");
+    else v.add(w + "s");
+    if (w.endsWith("e")) v.add(w + "d");
+    else if (w.endsWith("y") && !isV(w[n-2])) v.add(w.slice(0,-1) + "ied");
+    else {
+      v.add(w + "ed");
+      if (n >= 3 && !isV(w[n-1]) && !"ywx".includes(w[n-1]) && isV(w[n-2]) && !isV(w[n-3]))
+        v.add(w + w[n-1] + "ed");
+    }
+    if (w.endsWith("ie")) v.add(w.slice(0,-2) + "ying");
+    else if (w.endsWith("e") && !w.endsWith("ee")) v.add(w.slice(0,-1) + "ing");
+    else {
+      v.add(w + "ing");
+      if (n >= 3 && !isV(w[n-1]) && !"ywx".includes(w[n-1]) && isV(w[n-2]) && !isV(w[n-3]))
+        v.add(w + w[n-1] + "ing");
+    }
+    if (w.endsWith("e")) { v.add(w + "r"); v.add(w + "st"); }
+    else if (w.endsWith("y") && !isV(w[n-2])) { v.add(w.slice(0,-1) + "ier"); v.add(w.slice(0,-1) + "iest"); }
+    else { v.add(w + "er"); v.add(w + "est"); }
+    if (w.endsWith("y") && !isV(w[n-2])) v.add(w.slice(0,-1) + "ily");
+    else if (w.endsWith("le")) v.add(w.slice(0,-1) + "y");
+    else v.add(w + "ly");
+    return [...v].sort((a, b) => b.length - a.length);
+  }
+
+  function highlightWords(text, words) {
+    let html = escapeHtml(text);
+    words.forEach(w => {
+      const alts = wordVariants(w).map(x => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+      const re = new RegExp(`\\b(${alts.join("|")})\\b`, "gi");
+      html = html.replace(re, '<mark class="hl">$1</mark>');
+    });
+    return html;
+  }
+
+  function formatArticle(text, words, isTranslation) {
+    const lines = text.split(/\n/).map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length === 0) return "";
+    let html = "";
+    const firstLine = lines[0];
+    const looksLikeTitle = firstLine.length < 100 && !/[.!?。！？]$/.test(firstLine);
+    let startIdx = 0;
+    if (looksLikeTitle) {
+      html += `<p class="article-title">${isTranslation ? escapeHtml(firstLine) : highlightWords(firstLine, words)}</p>`;
+      startIdx = 1;
+    }
+    for (let i = startIdx; i < lines.length; i++) {
+      const cls = isTranslation ? "article-body-cn" : "article-body-en";
+      html += `<p class="${cls}">${isTranslation ? escapeHtml(lines[i]) : highlightWords(lines[i], words)}</p>`;
+    }
+    return html;
+  }
+
+  function renderContent(data) {
+    const area = document.getElementById("contentArea");
+    area.innerHTML = "";
+    const words = data.words || [];
+    const allQuestions = data.questions || [];
+    let qCounter = 0;
+
+    (data.articles || []).forEach((art, i) => {
+      const idx = i + 1;
+      const audioStatus = (data.audio_status || [])[i] || {};
+      const hasAudio = audioStatus.generated;
+      const speedOpts = SPEEDS.map(s => `<option value="${s}" ${s === 1 ? "selected" : ""}>${s}x</option>`).join("");
+      const articleQuestions = allQuestions.filter(q => q.article_index === idx);
+      const imgData = (data.images || [])[i] || null;
+
+      // 图片区域 HTML
+      let imageSection = "";
+      if (imgData && imgData.image_path) {
+        const imgUrl = "/" + imgData.image_path;
+        const visualChips = (imgData.visual_words || []).map(w =>
+          `<span class="chip img-chip">${escapeHtml(w)}</span>`
+        ).join("");
+        const noteHtml = imgData.note
+          ? `<div class="img-note">💡 ${escapeHtml(imgData.note)}</div>` : "";
+        imageSection = `
+          <div class="article-image-wrap">
+            <img class="article-image" src="${imgUrl}" alt="文章${idx}插图" loading="lazy"
+                 onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+            <div class="img-fallback" hidden>🖼️ 图片暂不可用</div>
+            <div class="img-words">
+              <span class="img-label">📌 图中关键词：</span>${visualChips}
+            </div>
+            ${noteHtml}
+          </div>
+        `;
+      } else if (imgData) {
+        // 有 imgData 但无 image_path（可能是图片生成失败）
+        const visualChips = (imgData.visual_words || []).map(w =>
+          `<span class="chip img-chip">${escapeHtml(w)}</span>`
+        ).join("");
+        const noteHtml = imgData.note
+          ? `<div class="img-note">💡 ${escapeHtml(imgData.note)}</div>` : "";
+        if (visualChips || noteHtml) {
+          imageSection = `
+            <div class="article-image-wrap">
+              <div class="img-placeholder">🎨 简约插图生成中…</div>
+              <div class="img-words">
+                <span class="img-label">📌 建议关注：</span>${visualChips}
+              </div>
+              ${noteHtml}
+            </div>
+          `;
+        }
+      }
+
+      // 文章卡片
+      const articleCard = document.createElement("div");
+      articleCard.className = "card article-card";
+      articleCard.innerHTML = `
+        <div class="article-head">
+          <h3>文章 ${idx}</h3>
+        </div>
+        ${imageSection}
+        <div class="audio-controls">
+          <button class="btn-play" data-idx="${idx}" data-text="${btoa(unescape(encodeURIComponent(art)))}">▶ 播放朗读</button>
+          <button class="btn-stop" data-idx="${idx}">⏹ 停止</button>
+          <label class="speed-label">语速
+            <select class="speed-select" id="speed-${idx}">${speedOpts}</select>
+          </label>
+        </div>
+        <div class="article-body">${formatArticle(art, words, false)}</div>
+        <div class="article-body-cn">${formatArticle((data.translations || [])[i] || "", words, true)}</div>
+        <div class="audio-note ${hasAudio ? 'ok' : 'warn'}">
+          ${hasAudio ? "✅ 服务端音频已生成" : "⚠️ 使用浏览器语音合成朗读"}
+        </div>
+      `;
+      area.appendChild(articleCard);
+
+      // 该文章的阅读理解题
+      if (articleQuestions.length > 0) {
+        const quizCard = document.createElement("div");
+        quizCard.className = "card";
+        quizCard.innerHTML = `
+          <h3>📖 阅读理解 — 文章 ${idx}</h3>
+          ${articleQuestions.map((q, qi) => {
+            const globalIdx = qCounter++;
+            const tag = `<span class="quiz-article-tag">文章 ${idx}</span>`;
+            return `
+              <div class="quiz-item">
+                <p class="quiz-q">${tag}<b>${globalIdx + 1}.</b> ${escapeHtml(q.question)}</p>
+                <div class="quiz-options">
+                  ${q.options.map((o, oi) => `
+                    <label class="quiz-opt">
+                      <input type="radio" name="q${globalIdx}" value="${oi}" data-answer="${q.answer}" data-explain="${escapeHtml(q.explanation)}">
+                      <span>${String.fromCharCode(65 + oi)}. ${escapeHtml(o)}</span>
+                    </label>
+                  `).join("")}
+                </div>
+                <div class="quiz-explain" id="explain-${globalIdx}" hidden></div>
+              </div>
+            `;
+          }).join("")}
+        `;
+        area.appendChild(quizCard);
+      }
+    });
+
+    bindAudioEvents(data);
+  }
+
+  function bindAudioEvents(data) {
+    const area = document.getElementById("contentArea");
+
+    area.querySelectorAll(".speed-select").forEach(sel => {
+      sel.addEventListener("change", (e) => {
+        const idx = e.target.id.replace("speed-", "");
+        const rate = parseFloat(e.target.value);
+        if (currentAudio && playingIdx == idx) {
+          currentAudio.playbackRate = rate;
+        }
+        if (currentUtterance && playingIdx == idx) {
+          window.speechSynthesis.cancel();
+          const btn = document.querySelector(`.btn-play[data-idx="${idx}"]`);
+          if (btn) speakBrowser(decodeURIComponent(escape(atob(btn.dataset.text))), idx);
+        }
+      });
+    });
+
+    area.querySelectorAll(".btn-play").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const idx = btn.dataset.idx;
+        const text = decodeURIComponent(escape(atob(btn.dataset.text)));
+        if (playingIdx == idx) {
+          if (currentAudio && !currentAudio.paused) {
+            currentAudio.pause();
+            updatePlayBtn(idx, false);
+            return;
+          }
+          if (currentAudio && currentAudio.paused) {
+            currentAudio.play();
+            updatePlayBtn(idx, true);
+            return;
+          }
+          if ("speechSynthesis" in window) {
+            if (window.speechSynthesis.paused) { window.speechSynthesis.resume(); updatePlayBtn(idx, true); }
+            else { window.speechSynthesis.pause(); updatePlayBtn(idx, false); }
+            return;
+          }
+        }
+        stopAllAudio();
+        playingIdx = idx;
+        if (data.record_id) {
+          fetch(`/api/audio/${data.record_id}/${idx}`)
+            .then(r => {
+              if (r.ok && r.headers.get("content-type")?.includes("audio")) {
+                return r.blob().then(b => {
+                  const url = URL.createObjectURL(b);
+                  currentAudio = new Audio(url);
+                  currentAudio.playbackRate = getSpeed(idx);
+                  currentAudio.onended = () => { playingIdx = null; updatePlayBtn(idx, false); };
+                  currentAudio.play();
+                  updatePlayBtn(idx, true);
+                });
+              }
+              speakBrowser(text, idx);
+              updatePlayBtn(idx, true);
+            })
+            .catch(() => { speakBrowser(text, idx); updatePlayBtn(idx, true); });
+        } else {
+          speakBrowser(text, idx);
+          updatePlayBtn(idx, true);
+        }
+      });
+    });
+
+    area.querySelectorAll(".btn-stop").forEach(btn => {
+      btn.addEventListener("click", () => stopAllAudio());
+    });
+  }
+
+  function renderCoverage(data) {
+    const cov = data.coverage ?? 0;
+    document.getElementById("coverageNum").textContent = cov;
+    document.getElementById("coverageFill").style.width = Math.min(cov, 100) + "%";
+    document.getElementById("coverageFill").style.background =
+      cov >= 100 ? "linear-gradient(90deg,#10b981,#34d399)" : "linear-gradient(90deg,#f59e0b,#fbbf24)";
+
+    const matchedCount = (data.matched_words || []).length;
+    const totalCount = (data.words || []).length;
+    document.getElementById("coverageFrac").textContent =
+      `${matchedCount}/${totalCount} 个目标词已覆盖（含词形变化）`;
+
+    const ml = document.getElementById("matchedList");
+    ml.innerHTML = (data.matched_words || []).map(w => `<span class="chip ok">${w}</span>`).join("") || '<span class="muted">无</span>';
+    const ms = document.getElementById("missingList");
+    ms.innerHTML = (data.missing_words || []).map(w => `<span class="chip bad">${w}</span>`).join("") || '<span class="muted">全部覆盖 ✓</span>';
+  }
+
+  function submitQuiz(data) {
+    let correct = 0;
+    const questions = data.questions || [];
+    const savedAnswers = [];
+    questions.forEach((q, qi) => {
+      const picked = document.querySelector(`input[name="q${qi}"]:checked`);
+      const pickedVal = picked ? Number(picked.value) : -1;
+      savedAnswers.push(pickedVal);
+      const explain = document.getElementById(`explain-${qi}`);
+      const opts = document.querySelectorAll(`input[name="q${qi}"]`);
+      opts.forEach((inp, oi) => {
+        const label = inp.closest(".quiz-opt");
+        label.classList.remove("correct", "wrong");
+        if (oi === q.answer) label.classList.add("correct");
+        if (picked && Number(picked.value) === oi && oi !== q.answer) label.classList.add("wrong");
+        inp.disabled = true;
+      });
+      if (picked && Number(picked.value) === q.answer) correct++;
+      explain.hidden = false;
+      explain.innerHTML = `<b>正确答案：${String.fromCharCode(65 + q.answer)}</b><br>${escapeHtml(q.explanation)}`;
+    });
+    document.getElementById("submitQuizBtn").hidden = true;
+    document.getElementById("resetQuizBtn").hidden = false;
+    const res = document.getElementById("quizResult");
+    res.hidden = false;
+    const pct = questions.length > 0 ? Math.round(correct / questions.length * 100) : 0;
+    let emoji = pct === 100 ? "🎉 满分！" : pct >= 60 ? "👍 不错" : "💪 继续加油";
+    res.innerHTML = `你答对了 <b>${correct}</b> / ${questions.length} 题 ${emoji}`;
+    // 保存到服务器
+    if (data.record_id) {
+      fetch("/api/quiz/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          record_id: data.record_id,
+          answers: savedAnswers,
+          correct_count: correct,
+          total_count: questions.length,
+        }),
+      }).catch(() => {});
+    }
+  }
+
+  function resetQuiz(data) {
+    document.querySelectorAll(".quiz-opt").forEach(o => {
+      o.classList.remove("correct", "wrong");
+      const inp = o.querySelector("input");
+      inp.checked = false;
+      inp.disabled = false;
+    });
+    document.querySelectorAll(".quiz-explain").forEach(e => e.hidden = true);
+    document.getElementById("submitQuizBtn").hidden = false;
+    document.getElementById("resetQuizBtn").hidden = true;
+    document.getElementById("quizResult").hidden = true;
+  }
+
+  function loadFromSessionOrURL() {
+    // 检查 URL 参数 rid（从历史记录跳转）
+    const params = new URLSearchParams(window.location.search);
+    const rid = params.get("rid");
+    if (rid) {
+      return fetch(`/api/history/${rid}`)
+        .then(r => r.json())
+        .then(data => {
+          sessionStorage.setItem("learningResult", JSON.stringify(data));
+          // 检查是否有已保存的答题记录
+          return fetch(`/api/quiz/latest/${rid}`)
+            .then(r => r.json())
+            .then(quiz => {
+              if (quiz.found) {
+                window._savedQuizAttempt = quiz;
+              }
+              return data;
+            })
+            .catch(() => data);
+        })
+        .catch(() => null);
+    }
+    const raw = sessionStorage.getItem("learningResult");
+    if (!raw) {
+      document.getElementById("learningEmpty").hidden = false;
+      return Promise.resolve(null);
+    }
+    try { return Promise.resolve(JSON.parse(raw)); } catch { return Promise.resolve(null); }
+  }
+
+  function showSavedAnswers(data, attempt) {
+    const questions = data.questions || [];
+    let correct = 0;
+    questions.forEach((q, qi) => {
+      const savedAns = attempt.answers[qi] ?? -1;
+      const opts = document.querySelectorAll(`input[name="q${qi}"]`);
+      const explain = document.getElementById(`explain-${qi}`);
+      opts.forEach((inp, oi) => {
+        const label = inp.closest(".quiz-opt");
+        label.classList.remove("correct", "wrong");
+        inp.disabled = true;
+        inp.checked = (oi === savedAns);
+        if (oi === q.answer) label.classList.add("correct");
+        if (savedAns === oi && oi !== q.answer) label.classList.add("wrong");
+        if (savedAns === -1 && oi === q.answer) label.classList.add("correct");
+      });
+      if (savedAns === q.answer) correct++;
+      explain.hidden = false;
+      let ansLabel = savedAns >= 0 ? String.fromCharCode(65 + savedAns) : "未作答";
+      explain.innerHTML = `<b>你的选择：${ansLabel}　正确答案：${String.fromCharCode(65 + q.answer)}</b><br>${escapeHtml(q.explanation)}`;
+    });
+    document.getElementById("showAnswersBtn").hidden = true;
+    document.getElementById("retryQuizBtn").hidden = true;
+    const res = document.getElementById("quizResult");
+    res.hidden = false;
+    const pct = questions.length > 0 ? Math.round(correct / questions.length * 100) : 0;
+    let emoji = pct === 100 ? "🎉 满分！" : pct >= 60 ? "👍 不错" : "💪 继续加油";
+    res.innerHTML = `上次答题：答对 <b>${correct}</b> / ${questions.length} 题 ${emoji}`;
+  }
+
+  function retryQuiz(data) {
+    // 清除保存的答题记录引用，重新作答
+    window._savedQuizAttempt = null;
+    resetQuiz(data);
+    document.getElementById("submitQuizBtn").hidden = false;
+    document.getElementById("showAnswersBtn").hidden = true;
+    document.getElementById("retryQuizBtn").hidden = true;
+  }
+
+  function renderAll(data) {
+    document.getElementById("learningEmpty").hidden = true;
+    document.getElementById("learningContent").hidden = false;
+    document.getElementById("demoTag").hidden = !data.demo_mode;
+    document.getElementById("generatedAt").textContent =
+      (data.demo_mode ? "Demo Mode · " : "") + `共 ${data.words?.length || 0} 个目标单词`;
+    renderCoverage(data);
+    renderContent(data);
+    // 先重置答题区按钮到初始状态（防止重新生成后残留旧状态）
+    document.getElementById("submitQuizBtn").hidden = false;
+    document.getElementById("resetQuizBtn").hidden = true;
+    document.getElementById("quizResult").hidden = true;
+    document.getElementById("showAnswersBtn").hidden = true;
+    document.getElementById("retryQuizBtn").hidden = true;
+    document.getElementById("submitQuizBtn").onclick = () => submitQuiz(data);
+    document.getElementById("resetQuizBtn").onclick = () => resetQuiz(data);
+    // 检查是否有已保存的答题记录（从历史记录跳转）
+    if (window._savedQuizAttempt) {
+      document.getElementById("submitQuizBtn").hidden = true;
+      document.getElementById("showAnswersBtn").hidden = false;
+      document.getElementById("retryQuizBtn").hidden = false;
+      document.getElementById("showAnswersBtn").onclick = () => showSavedAnswers(data, window._savedQuizAttempt);
+      document.getElementById("retryQuizBtn").onclick = () => retryQuiz(data);
+      // 从历史查看时，用户直接点击选项答题 → 自动切换到重新作答模式
+      const radios = document.querySelectorAll('input[type="radio"][name^="q"]');
+      const onFirstPick = function() {
+        window._savedQuizAttempt = null;
+        document.getElementById("submitQuizBtn").hidden = false;
+        document.getElementById("showAnswersBtn").hidden = true;
+        document.getElementById("retryQuizBtn").hidden = true;
+        document.getElementById("submitQuizBtn").onclick = () => submitQuiz(data);
+        document.getElementById("resetQuizBtn").onclick = () => resetQuiz(data);
+        this.checked = true; // 保持用户选中
+        radios.forEach(r => r.removeEventListener("change", onFirstPick));
+      };
+      radios.forEach(r => r.addEventListener("change", onFirstPick));
+    }
+  }
+
+  loadFromSessionOrURL().then(data => {
+    if (data) renderAll(data);
+  });
+
+  document.getElementById("regenerateBtn").addEventListener("click", async () => {
+    // 从 sessionStorage 获取当前数据
+    const raw = sessionStorage.getItem("learningResult");
+    if (!raw) return;
+    let currentData;
+    try { currentData = JSON.parse(raw); } catch { return; }
+    const overlay = document.getElementById("loadingOverlay");
+    overlay.hidden = false;
+    try {
+      const resp = await fetch("/api/regenerate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ words: currentData.words }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) { alert(data.error || "重新生成失败"); overlay.hidden = true; return; }
+      // 重新生成得到的是全新内容，清除旧的答题记录引用
+      window._savedQuizAttempt = null;
+      sessionStorage.setItem("learningResult", JSON.stringify(data));
+      renderAll(data);
+    } catch (e) {
+      alert("网络错误：" + e.message);
+    }
+    overlay.hidden = true;
+  });
+</script>
+{% endblock %}
