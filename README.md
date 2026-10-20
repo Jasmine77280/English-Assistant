@@ -2,6 +2,20 @@
 
 一个英语学习智能体 Web 应用。输入新学的英文单词，自动生成覆盖全部词汇的英文短文、中文翻译、朗读音频、主题插画与阅读理解题。
 
+**🌐 在线体验：<http://120.53.14.80>**
+
+---
+
+## 📸 产品截图
+
+| 首页输入 | 学习页（覆盖率 + 主题插画） |
+| :---: | :---: |
+| ![首页](docs/screenshots/01-homepage.png) | ![学习页](docs/screenshots/02-learning-coverage.png) |
+
+| 雅思风格阅读理解 | 答题结果（你的答案 vs 正确答案） |
+| :---: | :---: |
+| ![阅读理解](docs/screenshots/03-reading-questions.png) | ![答题结果](docs/screenshots/04-quiz-result.png) |
+
 ---
 
 ## ✨ 核心功能
