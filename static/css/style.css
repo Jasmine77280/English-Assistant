@@ -378,6 +378,20 @@ body {
   border-radius: 12px;
   border: 1px solid #e2e8f0;
 }
+/* 桌面端：插图浮动到文章右侧，正文环绕（"图片在短文旁边"） */
+@media (min-width: 768px) {
+  .article-image-wrap {
+    float: right;
+    width: 42%;
+    max-width: 360px;
+    margin: 4px 0 14px 20px;
+  }
+  .article-card::after {
+    content: "";
+    display: block;
+    clear: both;
+  }
+}
 .article-image {
   display: block;
   width: 100%;

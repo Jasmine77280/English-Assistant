@@ -401,7 +401,8 @@
       });
       if (picked && Number(picked.value) === q.answer) correct++;
       explain.hidden = false;
-      explain.innerHTML = `<b>正确答案：${String.fromCharCode(65 + q.answer)}</b><br>${escapeHtml(q.explanation)}`;
+      const ansLabel = pickedVal >= 0 ? String.fromCharCode(65 + pickedVal) : "未作答";
+      explain.innerHTML = `<b>你的答案：${ansLabel}　正确答案：${String.fromCharCode(65 + q.answer)}</b><br>${escapeHtml(q.explanation)}`;
     });
     document.getElementById("submitQuizBtn").hidden = true;
     document.getElementById("resetQuizBtn").hidden = false;
