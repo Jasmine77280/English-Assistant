@@ -123,16 +123,20 @@ class ArticleGenerator:
             "CRITICAL REQUIREMENTS:\n"
             "1. The two articles TOGETHER must contain ALL target words: "
             f"{', '.join(words)}.\n"
-            "2. Do NOT split words mechanically (e.g. first half in article 1, rest in article 2). "
-            "Instead, think about the SEMANTIC relationships between the words and group them "
-            "by meaning/usage into two logical themes.\n"
-            "3. Each article must be a REAL article with a clear topic, logical flow, "
+            "2. The two articles MUST be clearly DIFFERENT in theme, setting and genre — "
+            "e.g. one personal narrative / story, the other an expository or opinion piece. "
+            "Different places, different protagonists, different opening scenes. "
+            "They must NOT read like two versions of the same story.\n"
+            "3. Distribute the target words across the two articles by semantic fit — "
+            "each word goes into the article where it fits most naturally — but do NOT "
+            "split them mechanically half-and-half, and do NOT force all words into one article.\n"
+            "4. Each article must be a REAL article with a clear topic, logical flow, "
             "and varied sentence structures — NOT a list of disconnected sentences.\n"
-            "4. Use each target word naturally in context, as a native speaker would. "
+            "5. Use each target word naturally in context, as a native speaker would. "
             "Do NOT put words in quotes or repeat the same sentence template.\n"
-            "5. Use the EXACT word forms given (do not change tense/plural unless the word itself is plural).\n"
-            "6. Each article should be 120-200 words, engaging and easy to understand.\n"
-            "7. Return ONLY the two articles, separated by exactly one line containing: "
+            "6. Use the EXACT word forms given (do not change tense/plural unless the word itself is plural).\n"
+            "7. Each article should be 120-200 words, engaging and easy to understand.\n"
+            "8. Return ONLY the two articles, separated by exactly one line containing: "
             f"{SEP}\n"
             "No extra explanation, no numbering, no markdown code fences."
         )
@@ -300,55 +304,53 @@ class ContentEvaluator:
 # 4. Translator
 # ============================================================
 class Translator:
-    """将两篇英文文章翻译为自然中文。"""
+    """将两篇英文文章翻译为自然中文（逐篇独立翻译，单篇失败互不影响）。"""
+
+    FALLBACK = "（翻译暂时不可用，请稍后重试）"
 
     @staticmethod
     def translate(articles: List[str]) -> List[str]:
-        if len(articles) < 2:
-            return ["", ""]
+        out = [Translator._translate_one(a) for a in articles[:2]]
+        while len(out) < 2:
+            out.append(Translator.FALLBACK)
+        return out[:2]
+
+    @staticmethod
+    def _has_english(text: str) -> bool:
+        # 检测译文中是否残留连续 2 个及以上英文字母的单词（允许单个字母如 A）
+        return bool(re.search(r"[A-Za-z]{2,}", text))
+
+    @staticmethod
+    def _translate_one(article: str) -> str:
         prompt = (
-            "把下面两篇英文文章完整翻译成自然、流畅的中文。\n"
+            "把下面这篇英文文章完整翻译成自然、流畅的中文。\n"
             "严格要求：\n"
             "1. 译文中不得残留任何英文单词或词组，每一个英文词都必须翻译成中文"
             "（约定俗成的专有缩写如 UNESCO、DNA 除外，需在其后加括号中文注释）；\n"
             "2. 逐句完整翻译，不得漏译、跳译或省略任何句子；\n"
             "3. 保留原文的标题与段落结构，每段对应翻译；\n"
-            "4. 只输出两篇中文译文，两篇之间用单独一行 === 分隔，不要输出任何解释或原文。\n\n"
-            f"文章 1：\n{articles[0]}\n\n文章 2：\n{articles[1]}"
+            "4. 只输出中文译文，不要输出任何解释或英文原文。\n\n"
+            f"{article}"
         )
-        fallback = ["（翻译暂时不可用，请稍后重试）", "（翻译暂时不可用，请稍后重试）"]
-
-        def _parse(text: str) -> List[str]:
-            trans = [t.strip() for t in text.split(SEP) if t.strip()]
-            if len(trans) < 2:
-                trans = [t.strip() for t in re.split(r"\n\s*\n", text) if t.strip()][:2]
-            return trans[:2] if len(trans) >= 2 else []
-
-        def _has_english(text: str) -> bool:
-            # 检测译文中是否残留连续 2 个及以上英文字母的单词（允许单个字母如 A）
-            return bool(re.search(r"[A-Za-z]{2,}", text))
-
         try:
-            text = ArticleGenerator._call(prompt)
-            trans = _parse(text)
+            text = ArticleGenerator._call(prompt).strip()
+            if not text:
+                return Translator.FALLBACK
             # 若译文中残留英文单词，带纠错要求自动重试一次
-            if trans and any(_has_english(t) for t in trans):
+            if Translator._has_english(text):
                 logger.info("Translation contains English words, retrying once")
                 retry_prompt = prompt + (
                     "\n\n注意：你上一次的译文中残留了未翻译的英文单词，"
                     "请重新翻译，确保译文中除 UNESCO、DNA 等公认缩写及其括号注释外，"
                     "不出现任何英文字母组成的单词。"
                 )
-                text2 = ArticleGenerator._call(retry_prompt)
-                trans2 = _parse(text2)
-                if trans2:
-                    trans = trans2
-            if not trans:
-                return fallback
-            return trans
+                text2 = ArticleGenerator._call(retry_prompt).strip()
+                if text2:
+                    text = text2
+            return text
         except Exception as e:
             logger.warning("Translation failed: %s", e)
-            return fallback
+            return Translator.FALLBACK
 
 
 # ============================================================
