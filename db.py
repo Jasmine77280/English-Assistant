@@ -53,6 +53,10 @@ def init_db():
                 accuracy REAL NOT NULL
             )
         """)
+        # 旧库迁移：records 表补充 images 列
+        cols = [r[1] for r in c.execute("PRAGMA table_info(records)").fetchall()]
+        if "images" not in cols:
+            c.execute("ALTER TABLE records ADD COLUMN images TEXT")
         c.commit()
 
 
@@ -62,8 +66,8 @@ def save_record(result: Dict) -> int:
         cur = c.execute(
             """INSERT INTO records
                (created_at, words, articles, translations, questions, coverage,
-                matched_words, missing_words, audio_paths, demo_mode)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                matched_words, missing_words, audio_paths, demo_mode, images)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 now,
                 json.dumps(result.get("words", []), ensure_ascii=False),
@@ -75,6 +79,7 @@ def save_record(result: Dict) -> int:
                 json.dumps(result.get("missing_words", []), ensure_ascii=False),
                 json.dumps(result.get("audio_paths", []), ensure_ascii=False),
                 1 if result.get("demo_mode") else 0,
+                json.dumps(result.get("images", []), ensure_ascii=False),
             ),
         )
         c.commit()
@@ -123,6 +128,7 @@ def get_record(record_id: int) -> Optional[Dict]:
         "matched_words": json.loads(r["matched_words"] or "[]"),
         "missing_words": json.loads(r["missing_words"] or "[]"),
         "audio_paths": json.loads(r["audio_paths"] or "[]"),
+        "images": json.loads(r["images"] or "[]"),
         "demo_mode": bool(r["demo_mode"]),
     }
 
