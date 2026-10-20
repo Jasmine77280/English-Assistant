@@ -138,6 +138,7 @@ class ArticleGenerator:
             "7. Each article should be 120-200 words, engaging and easy to understand.\n"
             "8. Return ONLY the two articles, separated by exactly one line containing: "
             f"{SEP}\n"
+            "9. Use plain text only — no markdown formatting, no asterisks, no bold, no lists.\n"
             "No extra explanation, no numbering, no markdown code fences."
         )
         try:
@@ -145,6 +146,8 @@ class ArticleGenerator:
             articles = [a.strip() for a in text.split(SEP) if a.strip()]
             if len(articles) < 2:
                 articles = [a.strip() for a in re.split(r"\n\s*\n", text) if a.strip()][:2]
+            # 去掉模型可能残留的 markdown 加粗标记（如 **ocean**）
+            articles = [re.sub(r"\*+", "", a) for a in articles]
             if len(articles) < 2:
                 articles = ArticleGenerator._fallback(words)
             return articles[:2]
@@ -329,7 +332,8 @@ class Translator:
             "（约定俗成的专有缩写如 UNESCO、DNA 除外，需在其后加括号中文注释）；\n"
             "2. 逐句完整翻译，不得漏译、跳译或省略任何句子；\n"
             "3. 保留原文的标题与段落结构，每段对应翻译；\n"
-            "4. 只输出中文译文，不要输出任何解释或英文原文。\n\n"
+            "4. 只输出纯文本中文译文，不要输出任何解释或英文原文，"
+            "不要使用 ** 等 markdown 加粗标记。\n\n"
             f"{article}"
         )
         try:
@@ -347,7 +351,8 @@ class Translator:
                 text2 = ArticleGenerator._call(retry_prompt).strip()
                 if text2:
                     text = text2
-            return text
+            # 去掉模型可能残留的 markdown 加粗标记
+            return re.sub(r"\*+", "", text)
         except Exception as e:
             logger.warning("Translation failed: %s", e)
             return Translator.FALLBACK
@@ -567,14 +572,16 @@ class ImageGenerator:
     }
 
     @staticmethod
-    def _extract_keywords(article: str, target_words: List[str]) -> Tuple[List[str], List[str]]:
+    def _extract_keywords(article: str, target_words: List[str],
+                          other_article: str = "") -> Tuple[List[str], List[str]]:
         """从【本篇】文章中提取可图示的目标词与抽象词。
 
         只保留确实出现在本篇文章里的目标词（含词形变化），
-        不再从正文抓取额外名词，避免噪音词污染画面。
+        本篇独有的词排在前面（让两篇插图元素尽量不同）。
         返回 (visual_keywords, abstract_words)
         """
         low_text = article.lower()
+        low_other = other_article.lower()
         visual, abstract = [], []
         for w in target_words:
             pattern = ContentEvaluator._pattern(w)
@@ -584,8 +591,11 @@ class ImageGenerator:
             if low in ImageGenerator.ABSTRACT_WORDS:
                 abstract.append(w)
             else:
-                visual.append(w)
-        return visual[:3], abstract
+                # 本篇独有（另一篇没有出现）的词优先，让两张插图主题元素错开
+                unique = bool(low_other) and not re.search(pattern, low_other)
+                visual.append((0 if unique else 1, w))
+        visual_words = [w for _, w in sorted(visual, key=lambda x: x[0])]
+        return visual_words[:3], abstract
 
     @staticmethod
     def _build_prompt(article: str, visual_words: List[str]) -> str:
@@ -675,9 +685,10 @@ class ImageGenerator:
         return None
 
     @staticmethod
-    def generate(article: str, target_words: List[str], article_idx: int) -> Dict:
+    def generate(article: str, target_words: List[str], article_idx: int,
+                 other_article: str = "") -> Dict:
         """为单篇文章生成图片 + 标注信息。
-        
+
         返回：
         {
             "image_path": "images/xxx.png" 或 None,
@@ -686,7 +697,8 @@ class ImageGenerator:
             "note": "提示信息（如有）"
         }
         """
-        visual_words, abstract_words = ImageGenerator._extract_keywords(article, target_words)
+        visual_words, abstract_words = ImageGenerator._extract_keywords(
+            article, target_words, other_article)
         prompt = ImageGenerator._build_prompt(article, visual_words)
 
         url = ImageGenerator._call_cogview(prompt)
@@ -788,7 +800,8 @@ class EnglishLearningAgent:
         images = []
         for idx, art in enumerate(articles[:2], start=1):
             try:
-                img_result = ImageGenerator.generate(art, words, idx)
+                other = articles[1] if idx == 1 and len(articles) > 1 else articles[0]
+                img_result = ImageGenerator.generate(art, words, idx, other)
                 images.append(img_result)
             except Exception as e:
                 logger.warning("Image generation for article %d failed: %s", idx, e)
